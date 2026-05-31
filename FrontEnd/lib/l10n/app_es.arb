@@ -1,0 +1,53 @@
+{
+  "@@locale": "es",
+  "appTitle": "Plants App",
+  "@appTitle": { "description": "Nombre de la aplicación mostrado en MaterialApp" },
+
+  "tabPlants": "Plantas",
+  "@tabPlants": { "description": "Etiqueta de la pestaña de plantas" },
+
+  "tabCommunity": "Comunidad",
+  "@tabCommunity": {},
+
+  "tabMessages": "Mensajes",
+  "@tabMessages": {},
+
+  "tabNotifications": "Avisos",
+  "@tabNotifications": {},
+
+  "tabCalendar": "Calendario",
+  "@tabCalendar": {},
+
+  "tabProfile": "Perfil",
+  "@tabProfile": {},
+
+  "actionRetry": "Reintentar",
+  "@actionRetry": { "description": "Botón para reintentar una acción fallida" },
+
+  "actionCancel": "Cancelar",
+  "@actionCancel": {},
+
+  "actionSave": "Guardar",
+  "@actionSave": {},
+
+  "actionDelete": "Eliminar",
+  "@actionDelete": {},
+
+  "actionConfirm": "Confirmar",
+  "@actionConfirm": {},
+
+  "errorNetwork": "Sin conexión. Comprueba tu red.",
+  "@errorNetwork": { "description": "Mensaje cuando no hay conexión a internet" },
+
+  "errorUnauthorized": "Sesión expirada. Inicia sesión de nuevo.",
+  "@errorUnauthorized": {},
+
+  "errorNotFound": "El recurso solicitado no existe.",
+  "@errorNotFound": {},
+
+  "errorServer": "Error del servidor. Inténtalo más tarde.",
+  "@errorServer": {},
+
+  "errorUnexpected": "Error inesperado. Inténtalo de nuevo.",
+  "@errorUnexpected": {}
+}

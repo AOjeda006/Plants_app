@@ -1,0 +1,8 @@
+# Configuración de generación de AppLocalizations (flutter_localizations).
+# Decisión técnica F7-019: esqueleto de internacionalización aunque la app
+# se entregue solo en español; deja abierta la extensión a inglés u otros.
+arb-dir:               lib/l10n
+template-arb-file:     app_es.arb
+output-localization-file: app_localizations.dart
+output-class:          AppLocalizations
+nullable-getter:       false

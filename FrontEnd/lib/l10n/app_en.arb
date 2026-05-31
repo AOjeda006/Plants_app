@@ -1,0 +1,20 @@
+{
+  "@@locale": "en",
+  "appTitle": "Plants App",
+  "tabPlants": "Plants",
+  "tabCommunity": "Community",
+  "tabMessages": "Messages",
+  "tabNotifications": "Notifications",
+  "tabCalendar": "Calendar",
+  "tabProfile": "Profile",
+  "actionRetry": "Retry",
+  "actionCancel": "Cancel",
+  "actionSave": "Save",
+  "actionDelete": "Delete",
+  "actionConfirm": "Confirm",
+  "errorNetwork": "No connection. Please check your network.",
+  "errorUnauthorized": "Session expired. Please log in again.",
+  "errorNotFound": "The requested resource does not exist.",
+  "errorServer": "Server error. Please try again later.",
+  "errorUnexpected": "Unexpected error. Please try again."
+}

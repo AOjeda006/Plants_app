@@ -1,0 +1,33 @@
+# Dependencias
+/node_modules
+
+# Build
+/dist
+/build
+
+# Variables de entorno y secretos (NUNCA subir al repositorio)
+.env
+.env.local
+.env.*.local
+firebase-service-account.json
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tests
+/coverage

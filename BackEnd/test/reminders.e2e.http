@@ -1,0 +1,76 @@
+### ─────────────────────────────────────────────────────────────────
+### FASE 2.3 — Recordatorios E2E (REST Client para VS Code)
+### Base URL: http://localhost:3000
+### Requiere: servidor en marcha, usuario autenticado (ejecutar setup primero)
+### ─────────────────────────────────────────────────────────────────
+
+@baseUrl = http://localhost:3000
+
+### ─── BLOQUE 1: SETUP — Autenticación ───────────────────────────────
+
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@tfg.es",
+  "password": "Password123!"
+}
+
+###
+
+@token = {{login.response.body.token}}
+
+### ─── BLOQUE 2: GET /reminders ───────────────────────────────────────
+
+# Obtener recordatorios activos del usuario autenticado
+# Espera: 200 + array (posiblemente vacío al inicio)
+GET {{baseUrl}}/reminders
+Authorization: Bearer {{token}}
+
+###
+
+# Sin token → 401
+GET {{baseUrl}}/reminders
+
+###
+
+### ─── BLOQUE 3: POST /reminders/:id/complete ─────────────────────────
+
+# Completar un recordatorio inexistente → 404
+POST {{baseUrl}}/reminders/000000000000000000000001/complete
+Authorization: Bearer {{token}}
+
+###
+
+# ID de formato inválido → 404 o 400 según validación
+POST {{baseUrl}}/reminders/id-invalido/complete
+Authorization: Bearer {{token}}
+
+###
+
+# Sin token → 401
+POST {{baseUrl}}/reminders/000000000000000000000001/complete
+
+###
+
+### ─── BLOQUE 4: Ajuste climático (ReminderService.adjustByWeather) ──
+### Este endpoint no está expuesto directamente en la API REST por el TFG.
+### El ajuste climático es llamado internamente por el cron job.
+### Para verificar su efecto, observar logs del servidor tras el tick del cron.
+
+# Verificar que el cron job arranca y hay logs de procesamiento:
+# [ReminderCronJob] iniciado (schedule: "* * * * *")
+# [ProcessPendingReminders] N recordatorio(s) pendiente(s)
+
+### ─── BLOQUE 5: Health checks ────────────────────────────────────────
+
+# Liveness check
+GET {{baseUrl}}/health
+
+###
+
+# Readiness check (MongoDB)
+GET {{baseUrl}}/ready
+
+###

@@ -1,0 +1,343 @@
+###
+### chat.e2e.http
+### Prueba E2E del módulo de chat: conversaciones y mensajes (HTTP).
+### Ejecutar con la extensión "REST Client" de VS Code (Ctrl+Alt+R sobre cada bloque).
+###
+### NOTA SOBRE SOCKET.IO:
+###   Los eventos en tiempo real (message:send, message:ack, typing, presence:update)
+###   requieren un cliente WebSocket. Para probarlos, usar una de estas opciones:
+###     a) Postman (colección WebSocket incluida como comentarios al final)
+###     b) wscat: wscat -c "ws://localhost:3000" -H "Authorization: Bearer <token>"
+###     c) Test de integración Flutter (chat_e2e_test.dart) que usa socket_io_client
+###
+### Orden de ejecución:
+###   0. Setup: dos usuarios registrados y logados.
+###   1. Conversaciones: crear/obtener conversación entre los dos usuarios.
+###   2. Mensajes: enviar mensajes via HTTP REST (persiste con tempId).
+###   3. Lectura: marcar mensajes como leídos.
+###   4. Validaciones y errores.
+###   5. Teardown y health.
+###
+
+# ─── Variables globales ──────────────────────────────────────────────────────
+@baseUrl   = http://localhost:3000
+@email1    = e2e_chat1@example.com
+@password1 = Test1234!
+@email2    = e2e_chat2@example.com
+@password2 = Test1234!
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 0 — SETUP
+# ════════════════════════════════════════════════════════════════════════════
+
+### 0.1 Registrar usuario 1
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "E2E Chat User1",
+  "email": "{{email1}}",
+  "password": "{{password1}}"
+}
+
+###
+
+### 0.2 Registrar usuario 2
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "E2E Chat User2",
+  "email": "{{email2}}",
+  "password": "{{password2}}"
+}
+
+###
+
+### 0.3 Login usuario 1
+# @name loginChatUser1
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email1}}",
+  "password": "{{password1}}"
+}
+
+###
+
+@token1   = {{loginChatUser1.body.token}}
+@userId1  = {{loginChatUser1.body.user.id}}
+
+### 0.4 Login usuario 2
+# @name loginChatUser2
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email2}}",
+  "password": "{{password2}}"
+}
+
+###
+
+@token2  = {{loginChatUser2.body.token}}
+@userId2 = {{loginChatUser2.body.user.id}}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 1 — CONVERSACIONES
+# ════════════════════════════════════════════════════════════════════════════
+
+### 1.1 GET /chat/conversations — lista vacía al inicio (usuario 1)
+# Esperado: 200 { conversations: [] }
+GET {{baseUrl}}/chat/conversations
+Authorization: Bearer {{token1}}
+
+###
+
+### 1.2 POST /chat/conversations — crear conversación entre usuario1 y usuario2
+# Esperado: 201 con id, participants: [userId1, userId2], messages: []
+# @name createConversation
+POST {{baseUrl}}/chat/conversations
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "participantId": "{{userId2}}"
+}
+
+###
+
+@conversationId = {{createConversation.body.id}}
+
+### 1.3 POST /chat/conversations — idempotencia: crear misma conversación de nuevo
+# Esperado: 200 con la conversación existente (GetOrCreate)
+# @name getOrCreateConversation
+POST {{baseUrl}}/chat/conversations
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "participantId": "{{userId2}}"
+}
+
+###
+
+# El id debe ser el mismo que @conversationId
+# Verificar: getOrCreateConversation.body.id == conversationId
+
+### 1.4 GET /chat/conversations — ahora aparece la conversación (usuario 1)
+# Esperado: 200 con array de 1 conversación
+GET {{baseUrl}}/chat/conversations
+Authorization: Bearer {{token1}}
+
+###
+
+### 1.5 GET /chat/conversations — también aparece para usuario 2
+# Esperado: 200 con array de 1 conversación (misma)
+GET {{baseUrl}}/chat/conversations
+Authorization: Bearer {{token2}}
+
+###
+
+### 1.6 POST /chat/conversations — con participantId inválido
+# Esperado: 404 NOT_FOUND (usuario no existe)
+POST {{baseUrl}}/chat/conversations
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "participantId": "000000000000000000000000"
+}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 2 — MENSAJES (via REST — persiste con tempId)
+# ════════════════════════════════════════════════════════════════════════════
+
+### 2.1 GET /chat/conversations/:id/messages — mensajes vacíos al inicio
+# Esperado: 200 { messages: [], total: 0 }
+GET {{baseUrl}}/chat/conversations/{{conversationId}}/messages
+Authorization: Bearer {{token1}}
+
+###
+
+### 2.2 POST /chat/conversations/:id/messages — usuario 1 envía primer mensaje
+# Esperado: 201 con id, tempId, senderId=userId1, status='sent'
+# @name sendMessage1
+POST {{baseUrl}}/chat/conversations/{{conversationId}}/messages
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "content": "Hola! Vi tu post sobre la monstera. ¿Qué maceta le tienes?",
+  "tempId": "temp-msg-001"
+}
+
+###
+
+@messageId1 = {{sendMessage1.body.id}}
+
+### 2.3 POST /chat/conversations/:id/messages — usuario 2 responde
+# @name sendMessage2
+POST {{baseUrl}}/chat/conversations/{{conversationId}}/messages
+Authorization: Bearer {{token2}}
+Content-Type: application/json
+
+{
+  "content": "¡Hola! Tiene una maceta de terracota de 30cm. Le va genial porque respira.",
+  "tempId": "temp-msg-002"
+}
+
+###
+
+@messageId2 = {{sendMessage2.body.id}}
+
+### 2.4 POST /chat/conversations/:id/messages — idempotencia: mismo tempId
+# Esperado: 200 con el mensaje ya existente (no duplicado)
+POST {{baseUrl}}/chat/conversations/{{conversationId}}/messages
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "content": "Hola! Vi tu post sobre la monstera. ¿Qué maceta le tienes?",
+  "tempId": "temp-msg-001"
+}
+
+###
+
+### 2.5 POST /chat/conversations/:id/messages — usuario 1 envía más mensajes
+# @name sendMessage3
+POST {{baseUrl}}/chat/conversations/{{conversationId}}/messages
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "content": "Interesante el tema de la terracota. ¿Cada cuánto riegas?",
+  "tempId": "temp-msg-003"
+}
+
+###
+
+### 2.6 GET /chat/conversations/:id/messages — listar 3 mensajes
+# Esperado: 200 con array de 3 mensajes ordenados por fecha asc
+GET {{baseUrl}}/chat/conversations/{{conversationId}}/messages
+Authorization: Bearer {{token1}}
+
+###
+
+### 2.7 GET /chat/conversations/:id/messages — paginación (últimos 2)
+# Esperado: 200 con array de 2 mensajes (los más recientes)
+GET {{baseUrl}}/chat/conversations/{{conversationId}}/messages?limit=2&page=1
+Authorization: Bearer {{token1}}
+
+###
+
+### 2.8 POST — validación: content vacío
+# Esperado: 422 VALIDATION_ERROR
+POST {{baseUrl}}/chat/conversations/{{conversationId}}/messages
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "content": "",
+  "tempId": "temp-invalid"
+}
+
+###
+
+### 2.9 POST — usuario ajeno intenta enviar mensaje (no participa)
+# Esperado: 403 FORBIDDEN
+# (Usar un token de otro usuario. En este test no tenemos un 3er usuario registrado,
+#  pero si se crea uno nuevo, debería dar 403 al intentar acceder a esta conversación.)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 3 — MARCAR MENSAJES COMO LEÍDOS
+# ════════════════════════════════════════════════════════════════════════════
+
+### 3.1 PUT /chat/conversations/:id/read — usuario 2 marca todos como leídos
+# Esperado: 200 o 204 (mensajes del userId1 marcados como read para userId2)
+PUT {{baseUrl}}/chat/conversations/{{conversationId}}/read
+Authorization: Bearer {{token2}}
+
+###
+
+### 3.2 GET /chat/conversations/:id/messages — verificar status 'read' en mensajes
+# Esperado: mensajes enviados por user1 tienen status='read' desde perspectiva user2
+GET {{baseUrl}}/chat/conversations/{{conversationId}}/messages
+Authorization: Bearer {{token2}}
+
+###
+
+### 3.3 GET /chat/conversations — unreadCount debe ser 0 para user2
+# Esperado: conversación con unreadCount: 0
+GET {{baseUrl}}/chat/conversations
+Authorization: Bearer {{token2}}
+
+###
+
+### 3.4 GET /chat/conversations — user1 aún tiene 1 mensaje no leído (el de user2)
+# Esperado: conversación con unreadCount: 1
+GET {{baseUrl}}/chat/conversations
+Authorization: Bearer {{token1}}
+
+###
+
+### 3.5 PUT — user1 marca también como leído
+PUT {{baseUrl}}/chat/conversations/{{conversationId}}/read
+Authorization: Bearer {{token1}}
+
+###
+
+### 3.6 GET /chat/conversations — ahora unreadCount=0 para user1
+GET {{baseUrl}}/chat/conversations
+Authorization: Bearer {{token1}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 4 — SOCKET.IO (instrucciones manuales)
+# ════════════════════════════════════════════════════════════════════════════
+#
+# Para probar los eventos en tiempo real con wscat (npm i -g wscat):
+#
+# Terminal 1 (usuario 1):
+#   wscat -c "ws://localhost:3000" \
+#     --header "Authorization: Bearer <token1>"
+#   Enviar: {"event":"message:send","data":{"conversationId":"<id>","content":"Hola socket!","tempId":"temp-ws-001"}}
+#
+# Terminal 2 (usuario 2):
+#   wscat -c "ws://localhost:3000" \
+#     --header "Authorization: Bearer <token2>"
+#   Debe recibir: {"event":"message:new","data":{...mensaje...}}
+#
+# Evento ACK (usuario 2 confirma recepción):
+#   {"event":"message:ack","data":{"messageId":"<id>","conversationId":"<id>"}}
+#
+# Evento typing:
+#   {"event":"typing","data":{"conversationId":"<id>","isTyping":true}}
+#
+# Evento presence:
+#   {"event":"presence:update","data":{"status":"online"}}
+#
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 5 — HEALTH
+# ════════════════════════════════════════════════════════════════════════════
+
+### 5.1 GET /health
+GET {{baseUrl}}/health
+
+###
+
+### 5.2 GET /ready
+GET {{baseUrl}}/ready
+
+###

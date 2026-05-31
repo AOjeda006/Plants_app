@@ -1,0 +1,346 @@
+###
+### community.e2e.http
+### Prueba E2E del módulo de comunidad: posts, likes y comments.
+### Ejecutar con la extensión "REST Client" de VS Code (Ctrl+Alt+R sobre cada bloque).
+###
+### Orden de ejecución:
+###   0. Setup: registrar dos usuarios y hacer login con el primero.
+###   1. Posts: crear, listar, obtener por id, validaciones.
+###   2. Likes: dar like, verificar idempotencia, quitar like.
+###   3. Comments: crear, listar, validaciones.
+###   4. Interacción cruzada: segundo usuario da like y comenta.
+###   5. Teardown: verificar estado final y health.
+###
+
+# ─── Variables globales ──────────────────────────────────────────────────────
+@baseUrl    = http://localhost:3000
+@email1     = e2e_community1@example.com
+@password1  = Test1234!
+@email2     = e2e_community2@example.com
+@password2  = Test1234!
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 0 — SETUP: registro y login de dos usuarios
+# ════════════════════════════════════════════════════════════════════════════
+
+### 0.1 Registrar usuario 1 (autor de posts)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "E2E Community User1",
+  "email": "{{email1}}",
+  "password": "{{password1}}"
+}
+
+###
+
+### 0.2 Registrar usuario 2 (lector/comentador)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "E2E Community User2",
+  "email": "{{email2}}",
+  "password": "{{password2}}"
+}
+
+###
+
+### 0.3 Login usuario 1
+# @name loginUser1
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email1}}",
+  "password": "{{password1}}"
+}
+
+###
+
+@token1 = {{loginUser1.body.token}}
+
+### 0.4 Login usuario 2
+# @name loginUser2
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email2}}",
+  "password": "{{password2}}"
+}
+
+###
+
+@token2 = {{loginUser2.body.token}}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 1 — POSTS CRUD
+# ════════════════════════════════════════════════════════════════════════════
+
+### 1.1 GET /community — feed vacío al inicio
+# Esperado: 200 { posts: [], total: 0 } o similar
+GET {{baseUrl}}/community
+Authorization: Bearer {{token1}}
+
+###
+
+### 1.2 POST /community — crear post de texto (sin imagen)
+# Esperado: 201 con id, authorId, likesCount=0, commentsCount=0
+# @name createPost1
+POST {{baseUrl}}/community
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "title": "Mi primera planta en flor",
+  "content": "Hoy mi monstera ha sacado su primera hoja fenestrada. Llevaba 6 meses esperando este momento. ¡La paciencia da sus frutos!",
+  "tags": ["monstera", "interior", "logro"],
+  "imageUrl": null
+}
+
+###
+
+@postId1 = {{createPost1.body.id}}
+
+### 1.3 POST /community — validación: content vacío
+# Esperado: 422 VALIDATION_ERROR
+POST {{baseUrl}}/community
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "title": "Post inválido",
+  "content": "",
+  "tags": []
+}
+
+###
+
+### 1.4 POST /community — crear segundo post (con imageUrl)
+# @name createPost2
+POST {{baseUrl}}/community
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "title": "Consejo de riego para cactus",
+  "content": "Los cactus en invierno necesitan riego mínimo: una vez al mes es suficiente. En verano, cada 2 semanas con sustrato bien drenado.",
+  "tags": ["cactus", "riego", "consejo"],
+  "imageUrl": "https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=800"
+}
+
+###
+
+@postId2 = {{createPost2.body.id}}
+
+### 1.5 GET /community — feed con 2 posts (paginado)
+# Esperado: 200 con array de 2 posts, ordenados por fecha desc
+GET {{baseUrl}}/community
+Authorization: Bearer {{token1}}
+
+###
+
+### 1.6 GET /community — paginación: página 2 (vacía)
+# Esperado: 200 con array vacío
+GET {{baseUrl}}/community?page=2&limit=10
+Authorization: Bearer {{token1}}
+
+###
+
+### 1.7 GET /community/:id — obtener post 1 por id
+# Esperado: 200 con datos completos del post
+GET {{baseUrl}}/community/{{postId1}}
+Authorization: Bearer {{token1}}
+
+###
+
+### 1.8 GET /community/:id — id inexistente
+# Esperado: 404 NOT_FOUND
+GET {{baseUrl}}/community/000000000000000000000000
+Authorization: Bearer {{token1}}
+
+###
+
+### 1.9 GET /community — sin token
+# Esperado: 401 UNAUTHORIZED
+GET {{baseUrl}}/community
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 2 — LIKES
+# ════════════════════════════════════════════════════════════════════════════
+
+### 2.1 POST /community/:id/like — dar like al post 1 (usuario 1)
+# Esperado: 200 con likesCount=1
+POST {{baseUrl}}/community/{{postId1}}/like
+Authorization: Bearer {{token1}}
+
+###
+
+### 2.2 POST /community/:id/like — idempotencia: dar like otra vez (mismo usuario)
+# Esperado: 200 con likesCount=1 (sin duplicado)
+POST {{baseUrl}}/community/{{postId1}}/like
+Authorization: Bearer {{token1}}
+
+###
+
+### 2.3 GET /community/:id — verificar likesCount=1
+# Esperado: 200 con likesCount: 1
+GET {{baseUrl}}/community/{{postId1}}
+Authorization: Bearer {{token1}}
+
+###
+
+### 2.4 POST /community/:id/like — usuario 2 da like al post 1
+# Esperado: 200 con likesCount=2
+POST {{baseUrl}}/community/{{postId1}}/like
+Authorization: Bearer {{token2}}
+
+###
+
+### 2.5 GET /community/:id — verificar likesCount=2
+GET {{baseUrl}}/community/{{postId1}}
+Authorization: Bearer {{token1}}
+
+###
+
+### 2.6 DELETE /community/:id/like — usuario 1 quita su like
+# Esperado: 200 con likesCount=1
+DELETE {{baseUrl}}/community/{{postId1}}/like
+Authorization: Bearer {{token1}}
+
+###
+
+### 2.7 DELETE /community/:id/like — idempotencia: quitar like que no existe
+# Esperado: 200 con likesCount=1 (sin error)
+DELETE {{baseUrl}}/community/{{postId1}}/like
+Authorization: Bearer {{token1}}
+
+###
+
+### 2.8 GET /community/:id — verificar likesCount=1 (solo queda like de user2)
+GET {{baseUrl}}/community/{{postId1}}
+Authorization: Bearer {{token1}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 3 — COMMENTS
+# ════════════════════════════════════════════════════════════════════════════
+
+### 3.1 GET /community/:id/comments — comentarios vacíos al inicio
+# Esperado: 200 { comments: [], total: 0 }
+GET {{baseUrl}}/community/{{postId1}}/comments
+Authorization: Bearer {{token1}}
+
+###
+
+### 3.2 POST /community/:id/comments — usuario 1 comenta su propio post
+# Esperado: 201 con id, authorId, content
+# @name createComment1
+POST {{baseUrl}}/community/{{postId1}}/comments
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "content": "¡Gracias a todos por el apoyo! Ha sido un proceso de mucha paciencia."
+}
+
+###
+
+@commentId1 = {{createComment1.body.id}}
+
+### 3.3 POST /community/:id/comments — usuario 2 comenta
+# @name createComment2
+POST {{baseUrl}}/community/{{postId1}}/comments
+Authorization: Bearer {{token2}}
+Content-Type: application/json
+
+{
+  "content": "Qué bonito! ¿Con qué sustrato la tienes? Yo tengo la mía en tierra universal y no fenestra."
+}
+
+###
+
+@commentId2 = {{createComment2.body.id}}
+
+### 3.4 POST /community/:id/comments — validación: comment vacío
+# Esperado: 422 VALIDATION_ERROR
+POST {{baseUrl}}/community/{{postId1}}/comments
+Authorization: Bearer {{token1}}
+Content-Type: application/json
+
+{
+  "content": ""
+}
+
+###
+
+### 3.5 GET /community/:id/comments — listar 2 comentarios
+# Esperado: 200 con array de 2 comentarios ordenados por fecha
+GET {{baseUrl}}/community/{{postId1}}/comments
+Authorization: Bearer {{token1}}
+
+###
+
+### 3.6 GET /community/:id — verificar commentsCount=2 en el post
+GET {{baseUrl}}/community/{{postId1}}
+Authorization: Bearer {{token1}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 4 — INTERACCIÓN POST 2
+# ════════════════════════════════════════════════════════════════════════════
+
+### 4.1 POST /community/:id/like — usuarios 1 y 2 dan like al post 2
+POST {{baseUrl}}/community/{{postId2}}/like
+Authorization: Bearer {{token1}}
+
+###
+
+POST {{baseUrl}}/community/{{postId2}}/like
+Authorization: Bearer {{token2}}
+
+###
+
+### 4.2 POST /community/:id/comments — usuario 2 comenta post 2
+POST {{baseUrl}}/community/{{postId2}}/comments
+Authorization: Bearer {{token2}}
+Content-Type: application/json
+
+{
+  "content": "Muy buen consejo, lo aplicaré este invierno."
+}
+
+###
+
+### 4.3 GET /community — feed completo con contadores actualizados
+# Esperado: 200 con post1 (1 like, 2 comments) y post2 (2 likes, 1 comment)
+GET {{baseUrl}}/community
+Authorization: Bearer {{token1}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 5 — HEALTH CHECKS
+# ════════════════════════════════════════════════════════════════════════════
+
+### 5.1 GET /health
+GET {{baseUrl}}/health
+
+###
+
+### 5.2 GET /ready
+GET {{baseUrl}}/ready
+
+###

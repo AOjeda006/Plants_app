@@ -1,0 +1,175 @@
+###
+### weather.e2e.http
+### Prueba E2E del proxy meteorológico y MOCK_WEATHER_MODE.
+### Ejecutar con la extensión "REST Client" de VS Code (Ctrl+Alt+R sobre cada bloque).
+###
+### Prerrequisito: tener un token JWT válido (ejecutar plants.e2e.http BLOQUE 0 primero)
+### o registrar un usuario y hacer login en los pasos 0.1 y 0.2 de este archivo.
+###
+### Variables de entorno a configurar en .env para las pruebas:
+###   MOCK_WEATHER_MODE=true        → devuelve datos simulados sin llamar a WeatherAPI.com
+###   MOCK_WEATHER_MODE=false       → llama a la API real (requiere WEATHER_API_KEY válida)
+###
+
+# ─── Variables globales ─────────────────────────────────────────────────────
+@baseUrl   = http://localhost:3000
+@authEmail = e2e_weather@example.com
+@authPass  = Test1234!
+
+# Coordenadas de ejemplo: Madrid, España
+@lat = 40.4168
+@lon = -3.7038
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 0 — SETUP: obtener token
+# ════════════════════════════════════════════════════════════════════════════
+
+### 0.1 Registrar usuario de prueba
+# @name registerResponse
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "E2E Weather User",
+  "email": "{{authEmail}}",
+  "password": "{{authPass}}"
+}
+
+###
+
+### 0.2 Login — obtiene el JWT
+# @name loginResponse
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{authEmail}}",
+  "password": "{{authPass}}"
+}
+
+###
+
+@token = {{loginResponse.body.token}}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 1 — CLIMA ACTUAL
+# ════════════════════════════════════════════════════════════════════════════
+
+### 1.1 GET /weather?lat=...&lon=... — primera llamada (cache miss → llama API o mock)
+# Esperado: 200 con { locationKey, temperature, humidity, condition, ... }
+# Con MOCK_WEATHER_MODE=true devuelve datos simulados inmediatamente.
+GET {{baseUrl}}/weather?lat={{lat}}&lon={{lon}}
+Authorization: Bearer {{token}}
+
+###
+
+### 1.2 GET /weather?lat=...&lon=... — segunda llamada (cache hit)
+# Esperado: 200 — mismos datos (desde caché MongoDB, sin llamar a la API)
+GET {{baseUrl}}/weather?lat={{lat}}&lon={{lon}}
+Authorization: Bearer {{token}}
+
+###
+
+### 1.3 GET /weather — sin coordenadas
+# Esperado: 422 con errores de validación en campos lat y lon
+GET {{baseUrl}}/weather
+Authorization: Bearer {{token}}
+
+###
+
+### 1.4 GET /weather?lat=999&lon=0 — latitud fuera de rango
+# Esperado: 422 (lat debe estar entre -90 y 90)
+GET {{baseUrl}}/weather?lat=999&lon=0
+Authorization: Bearer {{token}}
+
+###
+
+### 1.5 GET /weather?lat=string&lon=0 — lat no numérico
+# Esperado: 422 con error de validación
+GET {{baseUrl}}/weather?lat=abc&lon=0
+Authorization: Bearer {{token}}
+
+###
+
+### 1.6 GET /weather — sin token
+# Esperado: 401 UNAUTHORIZED
+GET {{baseUrl}}/weather?lat={{lat}}&lon={{lon}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 2 — PREVISIÓN HORARIA
+# ════════════════════════════════════════════════════════════════════════════
+
+### 2.1 GET /weather/forecast?lat=...&lon=... — previsión por defecto (24h)
+# Esperado: 200 con { locationKey, hours: [...], fetchedAt }
+# hours debe tener 24 entradas (o menos si la API devuelve menos)
+GET {{baseUrl}}/weather/forecast?lat={{lat}}&lon={{lon}}
+Authorization: Bearer {{token}}
+
+###
+
+### 2.2 GET /weather/forecast?lat=...&lon=...&hours=48 — previsión 48h
+# Esperado: 200 con hasta 48 horas de previsión
+GET {{baseUrl}}/weather/forecast?lat={{lat}}&lon={{lon}}&hours=48
+Authorization: Bearer {{token}}
+
+###
+
+### 2.3 GET /weather/forecast?lat=...&lon=...&hours=6 — previsión corta
+# Esperado: 200 con 6 entradas en hours[]
+GET {{baseUrl}}/weather/forecast?lat={{lat}}&lon={{lon}}&hours=6
+Authorization: Bearer {{token}}
+
+###
+
+### 2.4 GET /weather/forecast?lat=...&lon=...&hours=100 — horas fuera de rango
+# Esperado: 422 (hours máximo es 48)
+GET {{baseUrl}}/weather/forecast?lat={{lat}}&lon={{lon}}&hours=100
+Authorization: Bearer {{token}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 3 — DISTINTAS LOCALIZACIONES
+# ════════════════════════════════════════════════════════════════════════════
+
+### 3.1 GET /weather — Barcelona
+# Esperado: 200 con locationKey="41.3874,2.1686"
+GET {{baseUrl}}/weather?lat=41.3874&lon=2.1686
+Authorization: Bearer {{token}}
+
+###
+
+### 3.2 GET /weather — Sevilla
+# Esperado: 200 con locationKey="37.3891,-5.9845"
+GET {{baseUrl}}/weather?lat=37.3891&lon=-5.9845
+Authorization: Bearer {{token}}
+
+###
+
+### 3.3 GET /weather/forecast — Barcelona (cache generada en 3.1)
+# Esperado: 200 con cache hit (datos generados en 3.1 o frescos si diferente clave)
+GET {{baseUrl}}/weather/forecast?lat=41.3874&lon=2.1686&hours=24
+Authorization: Bearer {{token}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 4 — HEALTH CHECKS (verificación final)
+# ════════════════════════════════════════════════════════════════════════════
+
+### 4.1 GET /health — proceso vivo
+GET {{baseUrl}}/health
+
+###
+
+### 4.2 GET /ready — MongoDB conectado
+GET {{baseUrl}}/ready
+
+###

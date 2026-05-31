@@ -1,0 +1,349 @@
+###
+### plants.e2e.http
+### Prueba E2E del CRUD completo de plantas y especies.
+### Ejecutar con la extensión "REST Client" de VS Code (Ctrl+Alt+R sobre cada bloque).
+###
+### Orden de ejecución:
+###   1. Setup: registrar usuario y hacer login para obtener token.
+###   2. Plantas: crear, listar, obtener, actualizar, eliminar.
+###   3. Especies: buscar, proponer, aprobar.
+###   4. Upload: subir imagen de planta.
+###   5. Teardown: confirmar soft-delete y health checks.
+###
+
+# ─── Variables globales ─────────────────────────────────────────────────────
+@baseUrl   = http://localhost:3000
+@authEmail = e2e_plants@example.com
+@authPass  = Test1234!
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 0 — SETUP: registro y login
+# ════════════════════════════════════════════════════════════════════════════
+
+### 0.1 Registrar usuario de prueba
+# @name registerResponse
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "E2E Plants User",
+  "email": "{{authEmail}}",
+  "password": "{{authPass}}"
+}
+
+###
+
+### 0.2 Login — obtiene el JWT necesario para el resto de peticiones
+# @name loginResponse
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{authEmail}}",
+  "password": "{{authPass}}"
+}
+
+###
+
+# Copiar el token del body anterior en la variable @token
+@token = {{loginResponse.body.token}}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 1 — PLANTS CRUD
+# ════════════════════════════════════════════════════════════════════════════
+
+### 1.1 GET /plants — lista plantas del usuario (vacía al inicio)
+# Esperado: 200 []
+GET {{baseUrl}}/plants
+Authorization: Bearer {{token}}
+
+###
+
+### 1.2 POST /plants — crear planta sin especie asociada
+# Esperado: 201 con id, nextWatering calculado
+# @name createPlantResponse
+POST {{baseUrl}}/plants
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Mi Albahaca",
+  "location": "Interior",
+  "wateringFrequency": 3,
+  "lightNeed": "High",
+  "pruningFrequency": 30,
+  "notes": "Cerca de la ventana sur",
+  "considerWeatherForWatering": false
+}
+
+###
+
+# Guardar id de la planta creada
+@plantId = {{createPlantResponse.body.id}}
+
+### 1.3 POST /plants — validación: body inválido
+# Esperado: 422 con errores de validación
+POST {{baseUrl}}/plants
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "",
+  "location": "Terraza",
+  "wateringFrequency": 0
+}
+
+###
+
+### 1.4 GET /plants — lista tras crear una planta
+# Esperado: 200 con array de 1 elemento
+GET {{baseUrl}}/plants
+Authorization: Bearer {{token}}
+
+###
+
+### 1.5 GET /plants/:id — obtener planta por id
+# Esperado: 200 con los datos de Mi Albahaca
+GET {{baseUrl}}/plants/{{plantId}}
+Authorization: Bearer {{token}}
+
+###
+
+### 1.6 GET /plants/:id — id inexistente
+# Esperado: 404 NOT_FOUND
+GET {{baseUrl}}/plants/000000000000000000000000
+Authorization: Bearer {{token}}
+
+###
+
+### 1.7 PUT /plants/:id — actualizar frecuencia de riego
+# Esperado: 200 con nextWatering recalculado
+PUT {{baseUrl}}/plants/{{plantId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "wateringFrequency": 5,
+  "notes": "La moví a interior — menos luz"
+}
+
+###
+
+### 1.8 PUT /plants/:id — nombre vacío (validación)
+# Esperado: 422 con error en campo name
+PUT {{baseUrl}}/plants/{{plantId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": ""
+}
+
+###
+
+### 1.9 POST /plants — crear segunda planta con speciesId ficticio
+# @name createPlant2Response
+POST {{baseUrl}}/plants
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Rosa del jardín",
+  "location": "Exterior",
+  "wateringFrequency": 7,
+  "lightNeed": "High",
+  "considerWeatherForWatering": true
+}
+
+###
+
+@plantId2 = {{createPlant2Response.body.id}}
+
+### 1.10 GET /plants — lista con dos plantas
+# Esperado: 200 con array de 2 elementos ordenados por nombre
+GET {{baseUrl}}/plants
+Authorization: Bearer {{token}}
+
+###
+
+### 1.11 DELETE /plants/:id — soft delete planta 1
+# Esperado: 204 sin body
+DELETE {{baseUrl}}/plants/{{plantId}}
+Authorization: Bearer {{token}}
+
+###
+
+### 1.12 GET /plants/:id — planta eliminada no debe aparecer
+# Esperado: 404 NOT_FOUND (deletedAt != null)
+GET {{baseUrl}}/plants/{{plantId}}
+Authorization: Bearer {{token}}
+
+###
+
+### 1.13 GET /plants — solo queda planta 2
+# Esperado: 200 con array de 1 elemento
+GET {{baseUrl}}/plants
+Authorization: Bearer {{token}}
+
+###
+
+### 1.14 DELETE /plants/:id — soft delete planta 2 (cleanup)
+# Esperado: 204
+DELETE {{baseUrl}}/plants/{{plantId2}}
+Authorization: Bearer {{token}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 2 — SPECIES (búsqueda y propuesta)
+# ════════════════════════════════════════════════════════════════════════════
+
+### 2.1 GET /species/search?q=rosa — buscar especie por nombre
+# Esperado: 200 con array (vacío si no hay datos semilla)
+GET {{baseUrl}}/species/search?q=rosa
+Authorization: Bearer {{token}}
+
+###
+
+### 2.2 GET /species/search?q= — búsqueda con string vacío
+# Esperado: 200 con array vacío o primeros 20 resultados públicos
+GET {{baseUrl}}/species/search?q=
+Authorization: Bearer {{token}}
+
+###
+
+### 2.3 POST /species — proponer nueva especie (isPublic=false hasta aprobación)
+# Esperado: 201 con id, isPublic=false
+# @name createSpeciesResponse
+POST {{baseUrl}}/species
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Rosa canina",
+  "scientificName": "Rosa canina L.",
+  "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Rosa_canina2.jpg/320px-Rosa_canina2.jpg",
+  "careRequirements": {
+    "wateringDays": 7,
+    "lightNeed": "High",
+    "temperatureRange": { "min": 5, "max": 35 }
+  },
+  "climateCompatibility": ["Mediterráneo", "Continental"],
+  "tips": ["Podar en febrero", "Abonar en primavera"]
+}
+
+###
+
+@speciesId = {{createSpeciesResponse.body.id}}
+
+### 2.4 GET /species/search?q=rosa — ahora la especie propuesta NO debe aparecer (isPublic=false)
+# Esperado: 200 con array vacío (la especie aún no está aprobada)
+GET {{baseUrl}}/species/search?q=rosa
+Authorization: Bearer {{token}}
+
+###
+
+### 2.5 POST /species/:id/approve — aprobar especie (TFG: sin verificación de rol admin)
+# Esperado: 200 con isPublic=true
+POST {{baseUrl}}/species/{{speciesId}}/approve
+Authorization: Bearer {{token}}
+
+###
+
+### 2.6 GET /species/search?q=rosa — ahora sí debe aparecer (isPublic=true)
+# Esperado: 200 con array de 1 elemento
+GET {{baseUrl}}/species/search?q=rosa
+Authorization: Bearer {{token}}
+
+###
+
+### 2.7 POST /plants — crear planta con speciesId real
+# @name createPlantWithSpeciesResponse
+POST {{baseUrl}}/plants
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Mi Rosa Canina",
+  "speciesId": "{{speciesId}}",
+  "location": "Exterior",
+  "wateringFrequency": 7,
+  "lightNeed": "High",
+  "considerWeatherForWatering": false
+}
+
+###
+
+@plantWithSpeciesId = {{createPlantWithSpeciesResponse.body.id}}
+
+### 2.8 GET /plants/:id — verificar planta tiene speciesId correcto
+# Esperado: 200 con speciesId == @speciesId
+GET {{baseUrl}}/plants/{{plantWithSpeciesId}}
+Authorization: Bearer {{token}}
+
+###
+
+### 2.9 DELETE /plants/:id — cleanup planta con especie
+DELETE {{baseUrl}}/plants/{{plantWithSpeciesId}}
+Authorization: Bearer {{token}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 3 — UPLOAD (imagen)
+# ════════════════════════════════════════════════════════════════════════════
+
+### 3.1 POST /upload/image — sin archivo
+# Esperado: 400 BAD_REQUEST (no file uploaded)
+POST {{baseUrl}}/upload/image
+Authorization: Bearer {{token}}
+
+###
+
+### 3.2 POST /upload/image — con archivo de imagen
+# NOTA: Para pruebas reales de upload, usar Thunder Client o Postman con form-data.
+# La extensión REST Client no soporta multipart/form-data de forma nativa.
+# Ejemplo equivalente en curl:
+#   curl -X POST http://localhost:3000/upload/image \
+#     -H "Authorization: Bearer <token>" \
+#     -F "image=@/path/to/photo.jpg"
+# Esperado: 201 con { url, publicId }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 4 — AUTENTICACIÓN (ownership y errores de auth)
+# ════════════════════════════════════════════════════════════════════════════
+
+### 4.1 GET /plants — sin token
+# Esperado: 401 UNAUTHORIZED
+GET {{baseUrl}}/plants
+
+###
+
+### 4.2 GET /plants — token inválido
+# Esperado: 401 UNAUTHORIZED
+GET {{baseUrl}}/plants
+Authorization: Bearer token_invalido_12345
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 5 — HEALTH CHECKS
+# ════════════════════════════════════════════════════════════════════════════
+
+### 5.1 GET /health — liveness check
+# Esperado: 200 { status: 'ok', timestamp: '...' }
+GET {{baseUrl}}/health
+
+###
+
+### 5.2 GET /ready — readiness check (MongoDB conectado)
+# Esperado: 200 { status: 'ready', db: 'connected' }
+GET {{baseUrl}}/ready
+
+###

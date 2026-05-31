@@ -1,0 +1,376 @@
+###
+### user_admin.e2e.http
+### Prueba E2E de endpoints de usuario (/users/me) y administración (/admin).
+### Ejecutar con la extensión "REST Client" de VS Code (Ctrl+Alt+R sobre cada bloque).
+###
+### Orden de ejecución:
+###   0. Setup: registrar usuario normal y usuario admin.
+###   1. Usuario: perfil propio, actualizar perfil, preferencias, cambiar contraseña.
+###   2. Admin: reports, deleted items, diagnostics, restore.
+###   3. Validaciones y errores de auth.
+###   4. Teardown y health.
+###
+### NOTA SOBRE ADMIN:
+###   Para que los endpoints /admin funcionen, el usuario debe tener rol 'admin'
+###   en la base de datos. Cambiar manualmente en MongoDB:
+###     db.users.updateOne({ email: "e2e_admin@example.com" }, { $set: { role: "admin" } })
+###
+
+# ─── Variables globales ──────────────────────────────────────────────────────
+@baseUrl      = http://localhost:3000
+@emailUser    = e2e_user_me@example.com
+@passwordUser = Test1234!
+@emailAdmin   = e2e_admin@example.com
+@passwordAdmin = Test1234!
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 0 — SETUP
+# ════════════════════════════════════════════════════════════════════════════
+
+### 0.1 Registrar usuario normal
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "E2E Normal User",
+  "email": "{{emailUser}}",
+  "password": "{{passwordUser}}"
+}
+
+###
+
+### 0.2 Registrar usuario admin (asignar rol admin manualmente en MongoDB)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "E2E Admin User",
+  "email": "{{emailAdmin}}",
+  "password": "{{passwordAdmin}}"
+}
+
+###
+
+### 0.3 Login usuario normal
+# @name loginNormalUser
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{emailUser}}",
+  "password": "{{passwordUser}}"
+}
+
+###
+
+@tokenUser = {{loginNormalUser.body.token}}
+
+### 0.4 Login usuario admin
+# @name loginAdminUser
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{emailAdmin}}",
+  "password": "{{passwordAdmin}}"
+}
+
+###
+
+@tokenAdmin = {{loginAdminUser.body.token}}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 1 — PERFIL DE USUARIO (/users/me)
+# ════════════════════════════════════════════════════════════════════════════
+
+### 1.1 GET /users/me — obtener perfil propio
+# Esperado: 200 con id, name, email, role, preferences, createdAt
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{tokenUser}}
+
+###
+
+### 1.2 GET /users/me — sin token
+# Esperado: 401 UNAUTHORIZED
+GET {{baseUrl}}/users/me
+
+###
+
+### 1.3 PUT /users/me — actualizar nombre y bio
+# Esperado: 200 con perfil actualizado
+PUT {{baseUrl}}/users/me
+Authorization: Bearer {{tokenUser}}
+Content-Type: application/json
+
+{
+  "name": "E2E User Actualizado",
+  "bio": "Amante de las plantas de interior. Especialmente monsteras y pothos.",
+  "location": "Madrid, España"
+}
+
+###
+
+### 1.4 PUT /users/me — validación: nombre vacío
+# Esperado: 422 VALIDATION_ERROR
+PUT {{baseUrl}}/users/me
+Authorization: Bearer {{tokenUser}}
+Content-Type: application/json
+
+{
+  "name": ""
+}
+
+###
+
+### 1.5 PUT /users/me — actualizar solo un campo (bio)
+# Esperado: 200 con perfil donde name se mantiene del paso 1.3
+PUT {{baseUrl}}/users/me
+Authorization: Bearer {{tokenUser}}
+Content-Type: application/json
+
+{
+  "bio": "Bio actualizada de nuevo."
+}
+
+###
+
+### 1.6 GET /users/me — verificar cambios aplicados
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{tokenUser}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 2 — PREFERENCIAS
+# ════════════════════════════════════════════════════════════════════════════
+
+### 2.1 PUT /users/me/preferences — activar notificaciones push y desactivar email
+# Esperado: 200 con preferences actualizadas
+PUT {{baseUrl}}/users/me/preferences
+Authorization: Bearer {{tokenUser}}
+Content-Type: application/json
+
+{
+  "pushNotifications": true,
+  "emailNotifications": false,
+  "theme": "dark",
+  "language": "es",
+  "isPrivateProfile": false
+}
+
+###
+
+### 2.2 GET /users/me — verificar preferences guardadas
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{tokenUser}}
+
+###
+
+### 2.3 PUT /users/me/preferences — cambiar solo el tema
+PUT {{baseUrl}}/users/me/preferences
+Authorization: Bearer {{tokenUser}}
+Content-Type: application/json
+
+{
+  "theme": "light"
+}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 3 — CAMBIO DE CONTRASEÑA
+# ════════════════════════════════════════════════════════════════════════════
+
+### 3.1 PUT /users/me/password — cambiar contraseña correctamente
+# Esperado: 200 o 204
+PUT {{baseUrl}}/users/me/password
+Authorization: Bearer {{tokenUser}}
+Content-Type: application/json
+
+{
+  "currentPassword": "{{passwordUser}}",
+  "newPassword": "NuevoPass123!"
+}
+
+###
+
+### 3.2 Login con nueva contraseña (verificar que funciona)
+# @name loginWithNewPassword
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{emailUser}}",
+  "password": "NuevoPass123!"
+}
+
+###
+
+@tokenUserNew = {{loginWithNewPassword.body.token}}
+
+### 3.3 PUT /users/me/password — contraseña actual incorrecta
+# Esperado: 401 UNAUTHORIZED o 400 BAD_REQUEST
+PUT {{baseUrl}}/users/me/password
+Authorization: Bearer {{tokenUserNew}}
+Content-Type: application/json
+
+{
+  "currentPassword": "ContraseñaIncorrecta!",
+  "newPassword": "OtraPass456!"
+}
+
+###
+
+### 3.4 PUT /users/me/password — nueva contraseña débil (validación)
+# Esperado: 422 VALIDATION_ERROR
+PUT {{baseUrl}}/users/me/password
+Authorization: Bearer {{tokenUserNew}}
+Content-Type: application/json
+
+{
+  "currentPassword": "NuevoPass123!",
+  "newPassword": "123"
+}
+
+###
+
+### 3.5 PUT /users/me/password — restaurar contraseña original (cleanup)
+PUT {{baseUrl}}/users/me/password
+Authorization: Bearer {{tokenUserNew}}
+Content-Type: application/json
+
+{
+  "currentPassword": "NuevoPass123!",
+  "newPassword": "{{passwordUser}}"
+}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 4 — ADMIN: REPORTS Y DIAGNÓSTICOS
+# (Requiere usuario con role='admin' en la BD — ver NOTA inicial)
+# ════════════════════════════════════════════════════════════════════════════
+
+### 4.1 GET /admin/reports — estadísticas de la plataforma
+# Esperado: 200 con { users: N, plants: N, posts: N, ... }
+GET {{baseUrl}}/admin/reports
+Authorization: Bearer {{tokenAdmin}}
+
+###
+
+### 4.2 GET /admin/reports — usuario normal intenta acceder
+# Esperado: 403 FORBIDDEN
+GET {{baseUrl}}/admin/reports
+Authorization: Bearer {{tokenUser}}
+
+###
+
+### 4.3 GET /admin/diagnostics — estado del sistema
+# Esperado: 200 con { db: 'connected', uptime: N, memory: {...} }
+GET {{baseUrl}}/admin/diagnostics
+Authorization: Bearer {{tokenAdmin}}
+
+###
+
+### 4.4 GET /admin/deleted-items — elementos soft-deleted
+# Esperado: 200 con { users: [], plants: [], posts: [] } (o con datos si los hay)
+GET {{baseUrl}}/admin/deleted-items
+Authorization: Bearer {{tokenAdmin}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 5 — ADMIN: RESTORE DE ELEMENTOS ELIMINADOS
+# ════════════════════════════════════════════════════════════════════════════
+
+### 5.1 Crear y eliminar una planta para tener algo en deleted-items
+# Primero crear planta:
+# @name createTempPlant
+POST {{baseUrl}}/plants
+Authorization: Bearer {{tokenUser}}
+Content-Type: application/json
+
+{
+  "name": "Planta para eliminar y restaurar",
+  "location": "Test",
+  "wateringFrequency": 7,
+  "lightNeed": "Low"
+}
+
+###
+
+@tempPlantId = {{createTempPlant.body.id}}
+
+### 5.2 Eliminar la planta (soft delete)
+DELETE {{baseUrl}}/plants/{{tempPlantId}}
+Authorization: Bearer {{tokenUser}}
+
+###
+
+### 5.3 GET /admin/deleted-items — verificar que aparece la planta eliminada
+# Esperado: plants array contiene la planta con deletedAt != null
+GET {{baseUrl}}/admin/deleted-items
+Authorization: Bearer {{tokenAdmin}}
+
+###
+
+### 5.4 POST /admin/restore/plant/:id — restaurar la planta
+# Esperado: 200 con la planta restaurada (deletedAt: null)
+POST {{baseUrl}}/admin/restore/plant/{{tempPlantId}}
+Authorization: Bearer {{tokenAdmin}}
+
+###
+
+### 5.5 GET /admin/deleted-items — verificar que ya no aparece en deleted
+GET {{baseUrl}}/admin/deleted-items
+Authorization: Bearer {{tokenAdmin}}
+
+###
+
+### 5.6 GET /plants/:id — verificar que la planta es accesible de nuevo
+GET {{baseUrl}}/plants/{{tempPlantId}}
+Authorization: Bearer {{tokenUser}}
+
+###
+
+### 5.7 POST /admin/restore — tipo inválido
+# Esperado: 400 BAD_REQUEST
+POST {{baseUrl}}/admin/restore/invalidtype/{{tempPlantId}}
+Authorization: Bearer {{tokenAdmin}}
+
+###
+
+### 5.8 POST /admin/restore — id inexistente
+# Esperado: 404 NOT_FOUND
+POST {{baseUrl}}/admin/restore/plant/000000000000000000000000
+Authorization: Bearer {{tokenAdmin}}
+
+###
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BLOQUE 6 — HEALTH CHECKS
+# ════════════════════════════════════════════════════════════════════════════
+
+### 6.1 GET /health
+GET {{baseUrl}}/health
+
+###
+
+### 6.2 GET /ready
+GET {{baseUrl}}/ready
+
+###
+
+### 6.3 GET /metrics (si METRICS_ENABLED=true en .env)
+# Esperado: 200 con métricas básicas (uptime, requests, errors)
+GET {{baseUrl}}/metrics
+Authorization: Bearer {{tokenAdmin}}
+
+###

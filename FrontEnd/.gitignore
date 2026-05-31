@@ -1,0 +1,67 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Variables de entorno (NUNCA subir al repositorio)
+.env
+.env.local
+.env.*.local
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Firebase / FCM (F7-054 / decisión #170): credenciales del cliente
+# generadas por `flutterfire configure`. NO commitear credenciales.
+# El proyecto Firebase del TFG opera en plan Spark gratuito y solo
+# se usa Cloud Messaging — la configuración debe regenerarse en cada
+# entorno con el comando documentado en README §9.10.
+/lib/firebase_options.dart
+/android/app/google-services.json
+/ios/Runner/GoogleService-Info.plist
+/macos/Runner/GoogleService-Info.plist
+
+# Keystore release (F7-059 / decisión #176): nunca commitear claves de
+# firma — perderlas equivale a perder la identidad de la app. Guardar
+# en Drive personal + USB físico. Las builds debug y CI caen al
+# keystore debug automáticamente cuando key.properties está ausente.
+/android/key.properties
+/android/app/upload-keystore.jks

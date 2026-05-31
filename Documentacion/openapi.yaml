@@ -1,0 +1,2802 @@
+openapi: 3.0.3
+info:
+  title: Plants App API
+  description: |
+    API REST del TFG "Plants App" — aplicación móvil de gestión de plantas con
+    funcionalidades de comunidad, chat en tiempo real, recordatorios y datos climáticos.
+    Arquitectura: Clean Architecture (Node.js + Express + MongoDB + Socket.IO).
+  version: 1.0.0
+  contact:
+    name: TFG — 2 DAM
+
+servers:
+  - url: http://localhost:3000/api
+    description: Servidor de desarrollo local
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPONENTES COMUNES
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT obtenido tras login o registro.
+
+  schemas:
+    # ── Error estándar ────────────────────────────────────────────────────────
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        code:
+          type: string
+          example: UNAUTHORIZED
+        message:
+          type: string
+          example: Token inválido o expirado.
+      required: [status, code, message]
+
+    # ── Paginación ────────────────────────────────────────────────────────────
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 150
+        hasMore:
+          type: boolean
+          example: true
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 50
+          example: Ana García
+        email:
+          type: string
+          format: email
+          example: ana@example.com
+        password:
+          type: string
+          minLength: 8
+          example: SecurePass1!
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: ana@example.com
+        password:
+          type: string
+          example: SecurePass1!
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT de acceso (expira en 7 días).
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        user:
+          $ref: '#/components/schemas/UserPublic'
+
+    # ── Usuario ───────────────────────────────────────────────────────────────
+    UserPublic:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        name:
+          type: string
+          example: Ana García
+        email:
+          type: string
+          example: ana@example.com
+        photo:
+          type: string
+          nullable: true
+          example: https://res.cloudinary.com/demo/image/upload/avatar.jpg
+        bannerPhoto:
+          type: string
+          nullable: true
+          example: https://res.cloudinary.com/demo/image/upload/banner.jpg
+        bio:
+          type: string
+          nullable: true
+          example: Amante de las plantas tropicales.
+        location:
+          type: string
+          nullable: true
+          example: Sevilla
+        locationLat:
+          type: number
+          format: double
+          nullable: true
+          example: 37.3891
+        locationLon:
+          type: number
+          format: double
+          nullable: true
+          example: -5.9845
+        role:
+          type: string
+          enum: [user, admin]
+          example: user
+        bannedUntil:
+          type: string
+          format: date-time
+          nullable: true
+          description: Fecha hasta la que el usuario está baneado. null si no está baneado.
+        preferences:
+          $ref: '#/components/schemas/UserPreferences'
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-01-15T10:00:00.000Z'
+
+    UserPreferences:
+      type: object
+      properties:
+        appearInChatSearch:
+          type: boolean
+          example: true
+        considerWeatherByDefault:
+          type: boolean
+          example: false
+        isPrivate:
+          type: boolean
+          default: false
+          description: Si true, el perfil no aparece en el feed público ni acepta nuevas conversaciones.
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 50
+        bio:
+          type: string
+          maxLength: 200
+        location:
+          type: string
+          description: Nombre de ciudad o texto libre. Para coords usar locationLat/locationLon.
+        locationLat:
+          type: number
+          format: double
+          description: Latitud de la ubicación seleccionada del catálogo de capitales.
+        locationLon:
+          type: number
+          format: double
+          description: Longitud de la ubicación seleccionada del catálogo de capitales.
+        photo:
+          type: string
+          description: URL Cloudinary de la foto de perfil.
+        bannerPhoto:
+          type: string
+          description: URL Cloudinary del banner/fondo de perfil.
+
+    UpdatePreferencesRequest:
+      type: object
+      properties:
+        appearInChatSearch:
+          type: boolean
+        considerWeatherByDefault:
+          type: boolean
+        isPrivate:
+          type: boolean
+
+    UpdatePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          example: OldPass1!
+        newPassword:
+          type: string
+          minLength: 8
+          example: NewPass2@
+
+    # ── Plantas ───────────────────────────────────────────────────────────────
+    Plant:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d2
+        userId:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        name:
+          type: string
+          example: Monstera Deliciosa
+        speciesId:
+          type: string
+          nullable: true
+          description: ID de la especie del catálogo.
+          example: 64f1a2b3c4d5e6f7a8b9c0e1
+        photo:
+          type: string
+          nullable: true
+          example: https://res.cloudinary.com/demo/image/upload/plant.jpg
+        location:
+          type: string
+          nullable: true
+          description: Ubicación del usuario propietario.
+        plantLocation:
+          type: string
+          nullable: true
+          description: Ubicación específica de la planta (ciudad).
+        plantLocationLat:
+          type: number
+          format: double
+          nullable: true
+        plantLocationLon:
+          type: number
+          format: double
+          nullable: true
+        wateringFrequency:
+          type: integer
+          description: Frecuencia de riego en días.
+          example: 7
+        lightNeed:
+          type: string
+          enum: [low, medium, high]
+          nullable: true
+          description: Necesidad de luz.
+        pruningFrequency:
+          type: integer
+          nullable: true
+          description: Frecuencia de poda en días.
+        notes:
+          type: string
+          nullable: true
+        nextWatering:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-03-07T08:00:00.000Z'
+        nextPruning:
+          type: string
+          format: date-time
+          nullable: true
+        considerWeatherForWatering:
+          type: boolean
+          description: Si true, el cron de clima ajusta el riego según previsión.
+        pendingRainAdjustment:
+          type: object
+          nullable: true
+          description: |
+            Reset de `nextWatering` pendiente de validación por el cron del
+            día siguiente (decisión #169 / F7-043). Se rellena cuando
+            `_processWeather` aplica un reset por previsión de lluvia y se
+            limpia / aplica rollback en `_processYesterdayRain`.
+          properties:
+            resetAt:
+              type: string
+              format: date-time
+              description: Momento en el que se aplicó el reset por previsión.
+            previousNextWatering:
+              type: string
+              format: date-time
+              nullable: true
+              description: Valor de `nextWatering` ANTES del reset (null si no había).
+            expectedMm:
+              type: number
+              description: Probabilidad/precipitación esperada que motivó el reset.
+            locationLat:
+              type: number
+            locationLon:
+              type: number
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreatePlantRequest:
+      type: object
+      required: [name, speciesId, plantLocation, wateringFrequency, lightNeed, location]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Monstera Deliciosa
+        speciesId:
+          type: string
+          description: ID de la especie del catálogo (obligatorio — decisión #22).
+        photo:
+          type: string
+          nullable: true
+        location:
+          type: string
+          description: Ubicación del usuario propietario.
+        plantLocation:
+          type: string
+          description: Ubicación específica de la planta (ciudad, obligatorio — decisión #61).
+        plantLocationLat:
+          type: number
+          format: double
+          nullable: true
+        plantLocationLon:
+          type: number
+          format: double
+          nullable: true
+        wateringFrequency:
+          type: integer
+          minimum: 1
+          example: 7
+        lightNeed:
+          type: string
+          enum: [low, medium, high]
+        pruningFrequency:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        considerWeatherForWatering:
+          type: boolean
+
+    UpdatePlantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        speciesId:
+          type: string
+          nullable: true
+        photo:
+          type: string
+          nullable: true
+        location:
+          type: string
+        wateringFrequency:
+          type: integer
+          minimum: 1
+        lightNeed:
+          type: string
+          enum: [low, medium, high]
+        pruningFrequency:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        considerWeatherForWatering:
+          type: boolean
+        plantLocation:
+          type: string
+          nullable: true
+        plantLocationLat:
+          type: number
+          format: double
+          nullable: true
+        plantLocationLon:
+          type: number
+          format: double
+          nullable: true
+        lastWatered:
+          type: string
+          format: date-time
+          nullable: true
+          description: Solo se envía internamente desde POST /plants/:id/water.
+
+    # ── Comunidad ─────────────────────────────────────────────────────────────
+    Post:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d3
+        userId:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        authorName:
+          type: string
+          example: Ana García
+        authorPhoto:
+          type: string
+          nullable: true
+        content:
+          type: string
+          maxLength: 1000
+          example: Mi monstera ha echado una nueva hoja!
+        image:
+          type: string
+          nullable: true
+        likesCount:
+          type: integer
+          example: 42
+        commentsCount:
+          type: integer
+          example: 5
+        isLikedByMe:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreatePostRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          example: Mi monstera ha echado una nueva hoja!
+        imageUrl:
+          type: string
+          nullable: true
+        plantId:
+          type: string
+          nullable: true
+
+    Comment:
+      type: object
+      properties:
+        id:
+          type: string
+        postId:
+          type: string
+          description: ID del post al que pertenece el comentario.
+        userId:
+          type: string
+        authorName:
+          type: string
+        authorPhoto:
+          type: string
+          nullable: true
+        content:
+          type: string
+          maxLength: 500
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateCommentRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    # ── Chat ──────────────────────────────────────────────────────────────────
+    ParticipantSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        name:
+          type: string
+          example: Ana García
+        photo:
+          type: string
+          nullable: true
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d4
+        participant:
+          $ref: '#/components/schemas/ParticipantSummary'
+        lastMessage:
+          $ref: '#/components/schemas/Message'
+          nullable: true
+        lastMessageAt:
+          type: string
+          format: date-time
+          nullable: true
+        unreadCount:
+          type: integer
+          example: 3
+        isParticipantDeleted:
+          type: boolean
+          description: True si el otro participante ha eliminado su cuenta.
+        createdAt:
+          type: string
+          format: date-time
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d5
+        conversationId:
+          type: string
+        senderId:
+          type: string
+        senderName:
+          type: string
+        text:
+          type: string
+        contentMeta:
+          type: object
+          nullable: true
+          description: Metadatos del contenido (ej. link preview, imagen embebida).
+        status:
+          type: string
+          enum: [pending, sent, delivered, read]
+          description: "pending→sent→delivered→read. sent = servidor recibió; delivered = destinatario online."
+          example: delivered
+        tempId:
+          type: string
+          nullable: true
+          description: ID temporal asignado por el cliente para correlación optimista.
+        createdAt:
+          type: string
+          format: date-time
+
+    SendMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          example: Hola! Vi tu post sobre la monstera.
+        contentMeta:
+          type: object
+          nullable: true
+          description: Metadatos opcionales del contenido.
+        tempId:
+          type: string
+          nullable: true
+          description: ID temporal del cliente para correlación optimista.
+
+    # ── Recordatorios ─────────────────────────────────────────────────────────
+    Reminder:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        plantId:
+          type: string
+        plantName:
+          type: string
+        type:
+          type: string
+          enum: [watering, fertilizing, repotting]
+        scheduledAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        isCompleted:
+          type: boolean
+
+    # ── Tiempo ────────────────────────────────────────────────────────────────
+    CurrentWeather:
+      type: object
+      properties:
+        locationKey:
+          type: string
+          description: Clave normalizada de la localización (lat,lon con 4 decimales).
+          example: '40.4168,-3.7038'
+        temperature:
+          type: number
+          example: 18.5
+        feelsLike:
+          type: number
+          example: 16.0
+        humidity:
+          type: integer
+          example: 65
+        windSpeed:
+          type: number
+          example: 12.3
+        condition:
+          type: string
+          description: Descripción del estado del tiempo.
+          example: Partly cloudy
+        icon:
+          type: string
+          example: '02d'
+        rainProbability:
+          type: integer
+          description: Probabilidad de lluvia (0-100%).
+          example: 25
+        fetchedAt:
+          type: string
+          format: date-time
+          description: Momento en que se obtuvieron los datos.
+          example: '2026-04-01T15:30:00.000Z'
+
+    ForecastItem:
+      type: object
+      properties:
+        dateTime:
+          type: string
+          format: date-time
+        temperature:
+          type: number
+        humidity:
+          type: integer
+        description:
+          type: string
+        icon:
+          type: string
+
+    # ── Especies ──────────────────────────────────────────────────────────────
+    PlantSpecies:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          example: Monstera Deliciosa
+        scientificName:
+          type: string
+          example: Monstera deliciosa
+        image:
+          type: string
+          nullable: true
+        careRequirements:
+          type: object
+          properties:
+            wateringDays:
+              type: integer
+              example: 7
+            lightNeed:
+              type: string
+              enum: [low, medium, high]
+              example: medium
+        climateCompatibility:
+          type: array
+          items:
+            type: string
+          example: [tropical, subtropical]
+        tips:
+          type: array
+          items:
+            type: string
+        isPublic:
+          type: boolean
+        requiresPruning:
+          type: boolean
+          description: Indica si la especie requiere poda anual (opcional)
+        pruningMonths:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+            maximum: 12
+          description: Meses recomendados de poda (1=enero…12=diciembre). Solo aplica si requiresPruning=true (opcional)
+        produceFruit:
+          type: boolean
+          description: Indica si la especie produce fruto cosechable (opcional)
+        harvestMonths:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+            maximum: 12
+          description: Meses en los que se puede cosechar (1=enero…12=diciembre). Solo aplica si produceFruit=true (opcional)
+        seasonalWateringAdjustment:
+          type: object
+          description: Ajuste estacional de la frecuencia de riego. Valores son multiplicadores sobre wateringFrequency. <1.0 = regar más frecuente; >1.0 = menos frecuente. Primavera/otoño no se ajustan (factor 1.0). Campo opcional.
+          properties:
+            summer:
+              type: number
+              format: double
+              description: Multiplicador verano (jun–ago). Ej 0.7 = 30% más frecuente.
+              example: 0.7
+            winter:
+              type: number
+              format: double
+              description: Multiplicador invierno (dic–feb). Ej 1.5 = 50% menos frecuente.
+              example: 1.5
+        minRainfallMm:
+          type: number
+          format: double
+          description: Precipitación mínima en mm para considerar la planta regada por lluvia. Default 5mm si ausente. (opcional)
+          example: 5.0
+        waterLitersPerWatering:
+          type: number
+          format: double
+          description: Litros de agua por riego (informativo). (opcional)
+          example: 1.5
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateSpeciesRequest:
+      type: object
+      required: [name, scientificName]
+      properties:
+        name:
+          type: string
+        scientificName:
+          type: string
+        image:
+          type: string
+          nullable: true
+        careRequirements:
+          type: object
+          properties:
+            wateringDays:
+              type: integer
+            lightNeed:
+              type: string
+              enum: [low, medium, high]
+        climateCompatibility:
+          type: array
+          items:
+            type: string
+        tips:
+          type: array
+          items:
+            type: string
+
+    # ── Upload ────────────────────────────────────────────────────────────────
+    UploadImageResponse:
+      type: object
+      properties:
+        url:
+          type: string
+          example: https://res.cloudinary.com/demo/image/upload/v1234567890/plants/abc123.jpg
+        publicId:
+          type: string
+          example: plants/abc123
+        width:
+          type: integer
+          example: 1080
+        height:
+          type: integer
+          example: 1080
+        format:
+          type: string
+          example: jpg
+
+    # ── Admin ─────────────────────────────────────────────────────────────────
+    AdminReport:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        totalPlants:
+          type: integer
+        totalPosts:
+          type: integer
+        totalMessages:
+          type: integer
+        newUsersLast7Days:
+          type: integer
+        generatedAt:
+          type: string
+          format: date-time
+
+    # ── Notificaciones ────────────────────────────────────────────────────────
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d6
+        userId:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        type:
+          type: string
+          enum: [watering, pruning, harvest, fertilizing, repotting, custom, weather_rain, weather_storm, admin_warning]
+          description: Tipo de notificación. weather_rain/weather_storm generadas por el cron de clima. admin_warning por acciones de moderación.
+          example: watering
+        message:
+          type: string
+          example: Es hora de regar tu Monstera Deliciosa.
+        reminderId:
+          type: string
+          nullable: true
+          description: Id del recordatorio asociado. Null para notificaciones de clima o cosecha.
+        plantId:
+          type: string
+          nullable: true
+          description: Id de la planta asociada. Null para notificaciones generales.
+        isRead:
+          type: boolean
+          default: false
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── Reportes de incidencia ─────────────────────────────────────────────────
+    IncidentReport:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 64f1a2b3c4d5e6f7a8b9c0d7
+        userId:
+          type: string
+          description: Id del usuario que envía el reporte.
+          example: 64f1a2b3c4d5e6f7a8b9c0d1
+        ticketNumber:
+          type: integer
+          description: Número de ticket auto-incrementado (INC-XXX). Generado via colección counters.
+          example: 42
+        type:
+          type: string
+          enum: [general, post, comment]
+          description: Tipo de reporte — incidencia general, post específico o comentario.
+          example: post
+        targetId:
+          type: string
+          nullable: true
+          description: Id del post o comentario reportado. Null para reportes generales.
+        text:
+          type: string
+          description: Descripción de la incidencia.
+          example: Este post contiene contenido inapropiado.
+        imageUrl:
+          type: string
+          nullable: true
+          description: URL de imagen adjunta como evidencia (opcional).
+        status:
+          type: string
+          enum: [pending, resolved, dismissed]
+          default: pending
+          example: pending
+        resolvedBy:
+          type: object
+          nullable: true
+          description: Información del admin que resolvió/desestimó el reporte. Null si pendiente.
+          properties:
+            adminId:
+              type: string
+              example: 64f1a2b3c4d5e6f7a8b9c0a1
+            adminName:
+              type: string
+              example: Admin
+            resolvedAt:
+              type: string
+              format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateReportRequest:
+      type: object
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          enum: [general, post, comment]
+          example: post
+        targetId:
+          type: string
+          description: Id del post o comentario a reportar (requerido si type es post o comment).
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: Este post contiene contenido inapropiado.
+        imageUrl:
+          type: string
+          nullable: true
+
+  responses:
+    Unauthorized:
+      description: No autorizado — token ausente o inválido.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Prohibido — rol insuficiente.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Recurso no encontrado.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationError:
+      description: Error de validación en el cuerpo de la petición.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimitExceeded:
+      description: |
+        Demasiadas peticiones. Cuerpo: `{ code: 'RATE_LIMIT_EXCEEDED',
+        message, details: { retryAfterMinutes } }`. Las cabeceras estándar
+        `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` y
+        `Retry-After` indican cuándo se puede reintentar.
+      headers:
+        RateLimit-Limit:
+          schema: { type: integer }
+          description: Máximo de peticiones permitidas en la ventana.
+        RateLimit-Remaining:
+          schema: { type: integer }
+          description: Peticiones restantes en la ventana actual.
+        RateLimit-Reset:
+          schema: { type: integer }
+          description: Segundos hasta el reset de la ventana.
+        Retry-After:
+          schema: { type: integer }
+          description: Segundos hasta poder reintentar.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              code:
+                type: string
+                example: RATE_LIMIT_EXCEEDED
+              message:
+                type: string
+                example: Demasiados intentos, espera unos minutos.
+              details:
+                type: object
+                properties:
+                  retryAfterMinutes:
+                    type: integer
+                    example: 14
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SEGURIDAD GLOBAL
+# ─────────────────────────────────────────────────────────────────────────────
+security:
+  - BearerAuth: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # AUTH
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Registrar nuevo usuario
+      description: |
+        Crea una cuenta de usuario y devuelve un JWT de acceso.
+        **Rate limit:** 10 peticiones / 15 min por IP.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Usuario creado correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Email ya registrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesión
+      description: |
+        Autentica al usuario con email y contraseña y devuelve un JWT.
+        **Rate limit:** 10 peticiones / 15 min por IP.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login correcto.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /auth/validate-token:
+    get:
+      tags: [Auth]
+      summary: Validar token JWT
+      description: Verifica que el token Bearer es válido y devuelve el usuario autenticado.
+      responses:
+        '200':
+          description: Token válido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Renovar token JWT
+      description: |
+        Genera un token JWT nuevo con expiración fresca (`JWT_EXPIRES_IN`,
+        30d por defecto) para el usuario autenticado. F7-056 / decisión #175.
+
+        El frontend lo invoca al arrancar la app si al token actual le quedan
+        menos de 7 días para expirar (sesión persistente híbrida — sin
+        refresh tokens completos).
+
+        No requiere body: el `userId` se extrae del JWT actual a través del
+        `AuthMiddleware`. Idempotente — se puede llamar varias veces seguidas.
+      responses:
+        '200':
+          description: Token renovado correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: El usuario fue soft-deleted entre la emisión del token y este refresh.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppError'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # PLANTS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /plants:
+    get:
+      tags: [Plants]
+      summary: Listar plantas del usuario
+      description: Devuelve todas las plantas que pertenecen al usuario autenticado.
+      responses:
+        '200':
+          description: Lista de plantas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Plant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Plants]
+      summary: Crear planta
+      description: Crea una nueva planta para el usuario autenticado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlantRequest'
+      responses:
+        '201':
+          description: Planta creada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plant'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /plants/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID de la planta.
+    get:
+      tags: [Plants]
+      summary: Obtener detalle de planta
+      description: Devuelve los datos de una planta específica del usuario autenticado.
+      responses:
+        '200':
+          description: Detalle de la planta.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Plants]
+      summary: Actualizar planta
+      description: Actualiza los datos de una planta existente del usuario.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePlantRequest'
+      responses:
+        '200':
+          description: Planta actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plant'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Plants]
+      summary: Eliminar planta
+      description: Elimina la planta del usuario. Soft-delete en la base de datos.
+      responses:
+        '204':
+          description: Planta eliminada correctamente (sin contenido).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /plants/{id}/water:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID de la planta.
+    post:
+      tags: [Plants]
+      summary: Registrar riego manual
+      description: |
+        Registra que el usuario ha regado manualmente la planta.
+        Actualiza `lastWatered` a la fecha actual y recalcula `nextWatering`
+        sumando `wateringFrequency` días (con ajuste estacional si aplica).
+      responses:
+        '200':
+          description: Riego registrado. Devuelve la planta actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # COMMUNITY
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /community:
+    get:
+      tags: [Community]
+      summary: Obtener feed de la comunidad
+      description: Devuelve posts paginados ordenados por fecha descendente.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Feed paginado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Post'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Community]
+      summary: Crear post
+      description: Publica un nuevo post en la comunidad.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostRequest'
+      responses:
+        '201':
+          description: Post creado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /community/mine:
+    get:
+      tags: [Community]
+      summary: Obtener posts propios (perfil propio)
+      description: |
+        Variante del feed que devuelve únicamente los posts del usuario
+        autenticado (modo "Mi perfil"). Implementado en F3-042 / decisión #59
+        sustituyendo el filtrado local del antiguo `UserProfileViewModel`.
+        Backend ejecuta `IGetFeedUseCase.execute(userId, page, limit,
+        authorId=userId)` con `mine=true` interno.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Posts propios paginados.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Post'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /community/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del post.
+    get:
+      tags: [Community]
+      summary: Obtener post por ID
+      responses:
+        '200':
+          description: Detalle del post.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Community]
+      summary: Eliminar post propio
+      description: Soft-delete del post. Solo el autor puede eliminarlo (ownership validation).
+      responses:
+        '204':
+          description: Post eliminado.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /community/{id}/like:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del post.
+    post:
+      tags: [Community]
+      summary: Dar like a un post
+      description: Registra un like del usuario autenticado. Devuelve 409 si el usuario ya había dado like previamente.
+      responses:
+        '204':
+          description: Like registrado correctamente.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El usuario ya ha dado like a este post (LIKE_ALREADY_EXISTS).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Community]
+      summary: Quitar like de un post
+      responses:
+        '204':
+          description: Like eliminado.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /community/{id}/comments:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del post.
+    get:
+      tags: [Community]
+      summary: Obtener comentarios de un post
+      responses:
+        '200':
+          description: Lista de comentarios.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Comment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Community]
+      summary: Comentar un post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '201':
+          description: Comentario creado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /community/{id}/comments/{commentId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del post.
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del comentario.
+    delete:
+      tags: [Community]
+      summary: Eliminar comentario propio
+      description: |
+        Soft-delete del comentario. Solo el autor puede eliminarlo (ownership validation).
+        Decrementa commentsCount del post padre. Broadcast post:updated via socket.
+      responses:
+        '204':
+          description: Comentario eliminado.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # CHAT
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /chat:
+    get:
+      tags: [Chat]
+      summary: Listar conversaciones del usuario
+      description: Devuelve todas las conversaciones del usuario autenticado, ordenadas por actividad reciente.
+      responses:
+        '200':
+          description: Lista de conversaciones.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Chat]
+      summary: Obtener o crear conversación con un usuario
+      description: Devuelve la conversación existente con el otro usuario o la crea si no existe (get-or-create).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [otherUserId]
+              properties:
+                otherUserId:
+                  type: string
+                  example: 64f1a2b3c4d5e6f7a8b9c0d1
+      responses:
+        '200':
+          description: Conversación existente o recién creada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /chat/{id}/messages:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID de la conversación.
+    get:
+      tags: [Chat]
+      summary: Obtener mensajes de una conversación
+      description: Devuelve mensajes paginados (cursor-based), del más reciente al más antiguo.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: Mensajes paginados.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Chat]
+      summary: Enviar mensaje
+      description: Envía un nuevo mensaje en la conversación. El servidor emite `message:new` por Socket.IO.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Mensaje enviado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /chat/{id}/read:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID de la conversación.
+    post:
+      tags: [Chat]
+      summary: Marcar mensajes como leídos
+      description: Marca todos los mensajes no leídos de la conversación como leídos. Emite `messages:read` por Socket.IO.
+      responses:
+        '204':
+          description: Mensajes marcados como leídos.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # USERS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /users/search:
+    get:
+      tags: [Users]
+      summary: Buscar usuarios por nombre
+      description: Busca usuarios activos por nombre con regex case-insensitive. Admin ve todos; usuario normal excluye isPrivate=true. Excluye al propio solicitante. Máximo 20 resultados.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Texto de búsqueda (nombre).
+      responses:
+        '200':
+          description: Lista de usuarios coincidentes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    photo:
+                      type: string
+                      nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Obtener perfil del usuario autenticado
+      responses:
+        '200':
+          description: Perfil del usuario.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Users]
+      summary: Actualizar perfil del usuario autenticado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Perfil actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublic'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [Users]
+      summary: Eliminar cuenta del usuario autenticado
+      description: |
+        Soft-delete de la cuenta. Los datos del usuario se marcan como eliminados.
+        Si `preserveContent=false` (default), los posts y comentarios del usuario también se soft-delete.
+        Si `preserveContent=true`, los posts y comentarios permanecen pero quedan sin autor (anónimos).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  description: Contraseña actual del usuario para confirmar la eliminación.
+                preserveContent:
+                  type: boolean
+                  default: false
+                  description: Si true, los posts y comentarios permanecen anónimos tras borrar la cuenta.
+      responses:
+        '204':
+          description: Cuenta eliminada correctamente.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me/export:
+    get:
+      tags: [Users]
+      summary: Exportar datos personales del usuario (RGPD)
+      description: Devuelve un JSON con todos los datos personales del usuario autenticado — perfil y plantas. Conforme a RGPD Art. 20 (portabilidad de datos).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Datos exportados correctamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exportedAt:
+                    type: string
+                    format: date-time
+                    example: '2026-03-09T10:00:00.000Z'
+                  profile:
+                    $ref: '#/components/schemas/UserPublic'
+                  plants:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Plant'
+                  totalPlants:
+                    type: integer
+                    example: 5
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/me/preferences:
+    put:
+      tags: [Users]
+      summary: Actualizar preferencias del usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePreferencesRequest'
+      responses:
+        '200':
+          description: Preferencias actualizadas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublic'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me/password:
+    put:
+      tags: [Users]
+      summary: Cambiar contraseña
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePasswordRequest'
+      responses:
+        '204':
+          description: Contraseña cambiada correctamente.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me/fcm-token:
+    put:
+      tags: [Users]
+      summary: Registrar / actualizar el token FCM del dispositivo
+      description: |
+        Persiste el token FCM del dispositivo del usuario autenticado para
+        recibir notificaciones push (decisión #170 / F7-045). El frontend lo
+        envía tras el login (vía `FirebaseMessagingService.registerToken`) y
+        cada vez que Firebase rote el token (`onTokenRefresh`).
+
+        Pasar un string vacío equivale a desregistrar el dispositivo.
+
+        **Desasociación cross-cuenta (decisión #195 / F7-097):** si el mismo
+        `fcmToken` ya estaba asignado a otro usuario (transferencia del
+        dispositivo entre cuentas), el backend limpia primero el campo
+        `fcmToken` del usuario anterior antes de asignarlo al actual. De
+        este modo las push pendientes no llegan al usuario equivocado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fcmToken]
+              properties:
+                fcmToken:
+                  type: string
+                  description: Token FCM del dispositivo (vacío para desregistrar).
+                  example: 'dQw4w9WgXcQ:APA91bH…'
+      responses:
+        '204':
+          description: Token registrado correctamente.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [Users]
+      summary: Borrar el token FCM del usuario autenticado
+      description: |
+        Desregistro explícito del `fcmToken` del usuario actual (decisión
+        #195 / F7-097). Llamado por el `LogoutUseCase` profundo del
+        frontend durante el cierre de sesión para que las push pendientes
+        no lleguen al dispositivo asociado a la sesión anterior.
+
+        Idempotente: si el campo ya estaba vacío, devuelve 204 igualmente.
+      responses:
+        '204':
+          description: Token borrado correctamente.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del usuario.
+    get:
+      tags: [Users]
+      summary: Obtener perfil público de un usuario
+      responses:
+        '200':
+          description: Perfil público del usuario.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # REMINDERS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /reminders:
+    get:
+      tags: [Reminders]
+      summary: Obtener recordatorios del usuario
+      description: Devuelve los recordatorios de riego pendientes del usuario autenticado.
+      responses:
+        '200':
+          description: Lista de recordatorios.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Reminder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /reminders/{id}/complete:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del recordatorio.
+    post:
+      tags: [Reminders]
+      summary: Marcar recordatorio como completado
+      description: Registra que el usuario ha realizado la acción asociada al recordatorio (ej. ha regado la planta).
+      responses:
+        '204':
+          description: Recordatorio completado.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # LOCATIONS (catálogo estático de capitales de provincia españolas)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /locations/search:
+    get:
+      tags: [Locations]
+      summary: Buscar capitales de provincia españolas
+      description: |
+        Devuelve las capitales de provincia que coincidan con el texto de búsqueda.
+        Los datos son estáticos (sin MongoDB). Query vacía devuelve las 52 capitales.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Texto parcial a buscar (case-insensitive). Vacío = todas.
+          example: Sev
+      responses:
+        '200':
+          description: Lista de capitales que coinciden.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      example: Sevilla
+                    fullName:
+                      type: string
+                      example: Sevilla, Andalucía
+                    lat:
+                      type: number
+                      format: double
+                      example: 37.3891
+                    lon:
+                      type: number
+                      format: double
+                      example: -5.9845
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # WEATHER
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /weather:
+    get:
+      tags: [Weather]
+      summary: Obtener clima actual
+      description: Devuelve el clima actual para las coordenadas proporcionadas (fuente OpenWeatherMap).
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            example: 40.4168
+          description: Latitud.
+        - name: lon
+          in: query
+          required: true
+          schema:
+            type: number
+            example: -3.7038
+          description: Longitud.
+      responses:
+        '200':
+          description: Clima actual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentWeather'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /weather/forecast:
+    get:
+      tags: [Weather]
+      summary: Obtener previsión meteorológica
+      description: Devuelve la previsión por horas para las coordenadas proporcionadas.
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            example: 40.4168
+        - name: lon
+          in: query
+          required: true
+          schema:
+            type: number
+            example: -3.7038
+        - name: hours
+          in: query
+          schema:
+            type: integer
+            default: 24
+          description: Número de horas hacia adelante (máx. 120).
+      responses:
+        '200':
+          description: Previsión meteorológica.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  forecast:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ForecastItem'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # SPECIES
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /species/search:
+    get:
+      tags: [Species]
+      summary: Buscar especies de plantas
+      description: >
+        Búsqueda full-text de especies aprobadas por nombre o nombre científico.
+        Si `q` está vacío o ausente, se devuelven todas las especies públicas (hasta el límite).
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            default: ''
+          description: >
+            Término de búsqueda. Si se omite o se envía vacío, retorna todas las especies públicas
+            aprobadas (comportamiento "fetch all" para uso en selectores de especie).
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Resultados de búsqueda.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlantSpecies'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Nota: POST /species (propose) y POST /species/:id/approve fueron
+  # eliminados en F11-009 / decisión #214. El catálogo de especies
+  # se gestiona vía `npm run seed:species` (script idempotente que
+  # mantiene las 14 especies del seed). No hay UI de propuesta en
+  # frontend ni se prevé reabrir el flujo en el alcance del TFG.
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # UPLOAD
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /upload/image:
+    post:
+      tags: [Upload]
+      summary: Subir imagen a Cloudinary
+      description: |
+        Sube una imagen via multipart/form-data a Cloudinary y devuelve la URL resultante.
+        El cliente debe usar esa URL en las peticiones de creación/actualización de recursos
+        (plantas, posts, perfil de usuario).
+        Límite: 10 MB. Formatos aceptados: JPEG, PNG, WebP.
+      parameters:
+        - name: folder
+          in: query
+          schema:
+            type: string
+            default: general
+          description: Subcarpeta de Cloudinary donde se almacenará la imagen (ej. 'plants', 'posts', 'avatars').
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Archivo de imagen (JPEG, PNG o WebP, máx. 10 MB).
+      responses:
+        '201':
+          description: Imagen subida correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadImageResponse'
+        '400':
+          description: Archivo ausente, formato inválido o tamaño excedido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # NOTIFICATIONS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: Obtener notificaciones del usuario
+      description: Devuelve todas las notificaciones in-app del usuario autenticado, ordenadas por fecha descendente.
+      responses:
+        '200':
+          description: Lista de notificaciones.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [Notifications]
+      summary: Eliminar todas las notificaciones del usuario
+      description: Elimina permanentemente todas las notificaciones del usuario autenticado.
+      responses:
+        '204':
+          description: Notificaciones eliminadas.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /notifications/read:
+    put:
+      tags: [Notifications]
+      summary: Marcar todas las notificaciones como leídas
+      description: Marca todas las notificaciones del usuario autenticado como leídas (isRead=true).
+      responses:
+        '204':
+          description: Notificaciones marcadas como leídas.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # REPORTS (incidencias de usuarios)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /reports:
+    post:
+      tags: [Reports]
+      summary: Enviar reporte de incidencia
+      description: |
+        Permite a cualquier usuario autenticado reportar una incidencia general,
+        un post específico o un comentario. El reporte queda en estado `pending`
+        hasta que un administrador lo revise.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '201':
+          description: Reporte enviado correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentReport'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ADMIN
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /admin/reports:
+    get:
+      tags: [Admin]
+      summary: Obtener informe de estadísticas (admin)
+      description: Devuelve métricas globales de la plataforma. Solo administradores.
+      responses:
+        '200':
+          description: Informe de estadísticas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/deleted-items:
+    get:
+      tags: [Admin]
+      summary: Listar elementos eliminados (admin)
+      description: Devuelve elementos marcados como soft-deleted para posible restauración.
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [user, plant, post]
+          description: Tipo de recurso a listar.
+      responses:
+        '200':
+          description: Lista de elementos eliminados.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  description: Objeto del recurso eliminado (estructura varía según type).
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/restore/{type}/{id}:
+    parameters:
+      - name: type
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [user, plant, post]
+        description: Tipo del recurso a restaurar.
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del recurso.
+    post:
+      tags: [Admin]
+      summary: Restaurar elemento eliminado (admin)
+      description: Restaura un elemento previamente marcado como soft-deleted.
+      responses:
+        '200':
+          description: Elemento restaurado correctamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: El recurso restaurado.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/diagnostics:
+    get:
+      tags: [Admin]
+      summary: Obtener diagnóstico del sistema (admin)
+      description: Devuelve información sobre el estado de los servicios (BD, Redis, colas). Solo administradores.
+      responses:
+        '200':
+          description: Diagnóstico del sistema.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mongodb:
+                    type: string
+                    enum: [ok, error]
+                  redis:
+                    type: string
+                    enum: [ok, error, unavailable]
+                  reminderQueue:
+                    type: string
+                    enum: [running, stopped]
+                  uptime:
+                    type: number
+                    description: Segundos desde el arranque del proceso.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/incident-reports:
+    get:
+      tags: [Admin]
+      summary: Listar reportes de incidencia (admin)
+      description: Devuelve todos los reportes enviados por los usuarios, ordenados por fecha descendente. Solo administradores.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, resolved, dismissed]
+          description: Filtrar por estado del reporte.
+        - name: ticketNumber
+          in: query
+          schema:
+            type: integer
+          description: Filtrar por número de ticket exacto (INC-XXX).
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Fecha inicio del rango de creación (ISO 8601).
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Fecha fin del rango de creación (ISO 8601).
+      responses:
+        '200':
+          description: Lista de reportes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IncidentReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/incident-reports/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del reporte.
+    put:
+      tags: [Admin]
+      summary: Actualizar estado de un reporte (admin)
+      description: Cambia el estado de un reporte a `resolved`, `dismissed` o `pending` (reabrir). Al resolver/desestimar se almacena `resolvedBy` con datos del admin. Al reabrir se elimina `resolvedBy`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [resolved, dismissed, pending]
+                  example: resolved
+      responses:
+        '200':
+          description: Reporte actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentReport'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/posts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del post.
+    delete:
+      tags: [Admin]
+      summary: Eliminar post por moderación (admin)
+      description: |
+        Soft-delete de un post por motivos de moderación.
+        Envía notificación in-app al autor indicando que su contenido fue eliminado.
+        Solo administradores.
+      responses:
+        '204':
+          description: Post eliminado por moderación.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/comments/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del comentario.
+    delete:
+      tags: [Admin]
+      summary: Eliminar comentario por moderación (admin)
+      description: |
+        Soft-delete de un comentario por motivos de moderación.
+        Envía notificación in-app al autor.
+        Solo administradores.
+      responses:
+        '204':
+          description: Comentario eliminado por moderación.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/trigger-reminders:
+    post:
+      tags: [Admin]
+      summary: Forzar ejecución del cron de recordatorios
+      description: |
+        Dos modos de operación:
+        - **Sin `username`**: ejecuta `ProcessPendingRemindersUseCase.execute()` (cron completo).
+        - **Con `username`**: genera TODAS las notificaciones posibles para ese usuario
+          (riego, poda, cosecha, alerta lluvia y alerta tormenta) usando datos de clima mockeados.
+          Devuelve la lista de notificaciones creadas. Útil para pruebas de la UI sin esperar al cron.
+        - **En `NODE_ENV=development`**: accesible a cualquier usuario autenticado.
+        - **En producción**: requiere rol `admin`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: Nombre del usuario para el que generar todas las notificaciones (opcional).
+                  example: Prueba10
+      responses:
+        '200':
+          description: Cron ejecutado o notificaciones generadas.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - description: Sin username — cron completo ejecutado.
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: Cron de recordatorios ejecutado correctamente
+                      triggeredAt:
+                        type: string
+                        format: date-time
+                  - description: Con username — lista de notificaciones generadas.
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "5 notificación(es) generada(s) para 'Prueba10'"
+                      username:
+                        type: string
+                      userId:
+                        type: string
+                      triggeredAt:
+                        type: string
+                        format: date-time
+                      notifications:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              enum: [watering, pruning, harvest, weather_rain, weather_storm]
+                            plantName:
+                              type: string
+                            message:
+                              type: string
+        '404':
+          description: Usuario no encontrado.
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users/search:
+    get:
+      tags: [Admin]
+      summary: Buscar usuarios por nombre o email
+      description: Busca usuarios activos (no eliminados) por nombre o email con regex case-insensitive. Máximo 20 resultados.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Texto de búsqueda (nombre o email).
+      responses:
+        '200':
+          description: Lista de usuarios coincidentes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    email:
+                      type: string
+                    photo:
+                      type: string
+                      nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users/{id}/ban:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del usuario a banear.
+    put:
+      tags: [Admin]
+      summary: Banear temporalmente a un usuario
+      description: |
+        Establece bannedUntil en el usuario. Durante el ban no puede publicar, comentar ni dar like.
+        Envía notificación tipo admin_warning al usuario baneado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [duration]
+              properties:
+                duration:
+                  type: integer
+                  minimum: 1
+                  description: Duración del ban en días.
+                  example: 7
+      responses:
+        '200':
+          description: Usuario baneado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  bannedUntil:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/users/{id}/warn:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ID del usuario al que enviar el aviso.
+    put:
+      tags: [Admin]
+      summary: Enviar aviso a un usuario
+      description: Crea una notificación de tipo admin_warning con el mensaje proporcionado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                  description: Texto del aviso.
+                  example: Tu contenido ha sido reportado por otros usuarios.
+      responses:
+        '204':
+          description: Aviso enviado.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/run-cron:
+    post:
+      tags: [Admin]
+      summary: Ejecutar el cron job completo de las 00:00
+      description: |
+        Ejecuta exactamente la misma lógica que el ReminderCronJob programado a medianoche:
+        riego, poda, cosecha y clima para TODOS los usuarios. Distinto de trigger-reminders
+        (que genera notificaciones mock para un usuario específico).
+      responses:
+        '200':
+          description: Cron ejecutado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Cron job ejecutado correctamente (lógica completa de 00:00)
+                  startedAt:
+                    type: string
+                    format: date-time
+                  finishedAt:
+                    type: string
+                    format: date-time
+                  durationMs:
+                    type: integer
+                    example: 2340
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/simulate-rain:
+    post:
+      tags: [Admin]
+      summary: Simular lluvia para todas las plantas activas
+      description: |
+        Genera notificaciones de lluvia simulada (80%) para TODAS las plantas activas.
+        Acceso directo a MongoDB (patrón TFG sin use case). Requiere permiso trigger_reminders.
+      responses:
+        '200':
+          description: Notificaciones de lluvia generadas.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Simulación de lluvia completada
+                  count:
+                    type: integer
+                    example: 12
+                  notifications:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/simulate-storm:
+    post:
+      tags: [Admin]
+      summary: Simular tormenta para todas las plantas activas
+      description: |
+        Genera alertas de tormenta simulada para TODAS las plantas activas.
+        Acceso directo a MongoDB (patrón TFG sin use case). Requiere permiso trigger_reminders.
+      responses:
+        '200':
+          description: Alertas de tormenta generadas.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Simulación de tormenta completada
+                  count:
+                    type: integer
+                    example: 12
+                  notifications:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # OPS / HEALTH
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /health:
+    get:
+      tags: [Ops]
+      summary: Health check enriquecido
+      description: |
+        Devuelve el estado del servicio con checks individuales (Fase 7.2).
+        Endpoint público (sin auth) — usado por cron-job.org para mantener
+        viva la instancia de Render Free Tier antes del cron diario.
+      security: []
+      responses:
+        '200':
+          description: Estado del servicio.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, timestamp, uptime, version, checks]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded, error]
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+                  uptime:
+                    type: number
+                    description: Segundos desde el arranque del proceso.
+                    example: 1234.56
+                  version:
+                    type: string
+                    description: Versión declarada en package.json.
+                    example: "1.0.0"
+                  checks:
+                    type: object
+                    properties:
+                      mongodb:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            enum: [ok, error]
+                          latencyMs:
+                            type: number
+                            example: 12
+                      weatherApi:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            enum: [ok, mock]
+                            description: '"mock" cuando MOCK_WEATHER_MODE=true.'
+                      lastCronRun:
+                        type: string
+                        nullable: true
+                        format: date-time
+                        description: Fecha del cachedAt máximo en weather_cache. null si nunca.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAGS
+# ─────────────────────────────────────────────────────────────────────────────
+tags:
+  - name: Auth
+    description: Autenticación y gestión de sesión.
+  - name: Plants
+    description: Gestión de plantas del usuario.
+  - name: Community
+    description: Posts, likes y comentarios de la comunidad.
+  - name: Chat
+    description: Mensajería directa entre usuarios (REST + Socket.IO).
+  - name: Users
+    description: Perfil, preferencias y cuenta de usuario.
+  - name: Reminders
+    description: Recordatorios de riego generados por el cron job.
+  - name: Weather
+    description: Datos meteorológicos actuales y previsión (OpenWeatherMap).
+  - name: Species
+    description: Catálogo de especies de plantas con moderación de admin.
+  - name: Upload
+    description: Subida de imágenes a Cloudinary.
+  - name: Notifications
+    description: Notificaciones in-app generadas por el cron job (riego, poda, cosecha, clima).
+  - name: Reports
+    description: Reportes de incidencia enviados por usuarios.
+  - name: Locations
+    description: Catálogo estático de capitales de provincia españolas para selector de ubicación.
+  - name: Admin
+    description: Operaciones de administración (rol admin requerido).
+  - name: Ops
+    description: Operaciones, healthcheck y diagnósticos del servicio.

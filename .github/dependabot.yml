@@ -1,0 +1,78 @@
+# =============================================================================
+# Dependabot — alertas y PRs automáticas para actualizaciones de seguridad
+# =============================================================================
+# Documentación: https://docs.github.com/code-security/dependabot
+#
+# Configuración TFG: solo PRs de seguridad, semanalmente, sin auto-merge.
+# Las PRs sirven para demostrar conocimiento del ciclo de vida de
+# dependencias en la defensa académica; no se requiere fusionarlas durante
+# el desarrollo del TFG.
+# =============================================================================
+
+version: 2
+updates:
+  # ── Backend Node.js (npm) ───────────────────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/BackEnd"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Madrid"
+    open-pull-requests-limit: 5
+    labels:
+      - "security"
+      - "dependencies"
+      - "backend"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    # Solo actualizaciones de seguridad: omite versiones non-security.
+    # Para incluir todas las actualizaciones, eliminar este bloque ignore.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+  # ── Frontend Flutter (pub) ──────────────────────────────────────────────────
+  - package-ecosystem: "pub"
+    directory: "/FrontEnd"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Madrid"
+    open-pull-requests-limit: 5
+    labels:
+      - "security"
+      - "dependencies"
+      - "frontend"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+  # ── GitHub Actions (workflows) ──────────────────────────────────────────────
+  # Si se añaden workflows en .github/workflows/, mantener actualizadas las
+  # actions usadas (checkout, setup-node, etc.) por seguridad.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Madrid"
+    open-pull-requests-limit: 3
+    labels:
+      - "security"
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(actions)"
