@@ -1,0 +1,33 @@
+# =============================================================================
+# .gitignore — nivel monorepo (Plants App)
+# Cada paquete (BackEnd/, FrontEnd/) mantiene además su propio .gitignore.
+# =============================================================================
+
+# --- Editores e IDEs ---
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Sistema operativo ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Dependencias y builds (por si se ejecuta algo desde la raíz) ---
+node_modules/
+dist/
+build/
+
+# --- Variables de entorno y secretos (NUNCA subir al repositorio) ---
+.env
+.env.local
+.env.*.local
+
+# --- Logs ---
+*.log
+logs/
+npm-debug.log*

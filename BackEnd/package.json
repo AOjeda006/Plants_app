@@ -1,10 +1,10 @@
 {
-  "name": "BackEnd",
+  "name": "plants-app-backend",
   "version": "0.0.1",
-  "description": "",
-  "author": "",
+  "description": "API REST del backend de Plants App: gestión de plantas, cuidados, clima y notificaciones (NestJS + MongoDB).",
+  "author": "Andrés Ojeda Rodríguez <andresojedarodriguez@gmail.com>",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
